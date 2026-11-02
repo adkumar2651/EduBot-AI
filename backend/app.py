@@ -19,6 +19,7 @@ load_dotenv()
 import datetime
 from functools import wraps
 from typing import Optional, Dict, List
+from urllib.parse import urlsplit
 
 import bcrypt
 import jwt
@@ -56,6 +57,41 @@ except ImportError:
 app = Flask(__name__)
 
 # ─────────────────────────────────────────────────────
+# ALLOWED FRONTEND ORIGINS (CORS)
+# ─────────────────────────────────────────────────────
+# A browser "origin" is scheme + host + port, with no path and no trailing slash.
+PRODUCTION_FRONTEND_ORIGIN = "https://adkumar2651.github.io"
+DEV_FRONTEND_ORIGINS = (
+    "http://localhost:5501", "http://127.0.0.1:5501",   # VS Code Live Server
+    "http://localhost:5500", "http://127.0.0.1:5500",
+    "http://localhost:8080", "http://127.0.0.1:8080",
+    "http://localhost:8000", "http://127.0.0.1:8000",
+)
+
+
+def _normalize_origin(value: str) -> str:
+    """Reduce 'https://host/some/path/' to 'https://host' (browsers send no path)."""
+    value = value.strip()
+    parts = urlsplit(value)
+    if parts.scheme and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc}"
+    return value.rstrip("/")
+
+
+def _build_allowed_origins() -> List[str]:
+    """Built-in production + development origins, plus any extras from the
+    FRONTEND_ORIGINS environment variable (comma-separated). The built-in
+    ones are always kept, so a Render environment value cannot lock them out."""
+    extras = os.environ.get("FRONTEND_ORIGINS", "").split(",")
+    allowed: List[str] = []
+    for origin in [PRODUCTION_FRONTEND_ORIGIN, *DEV_FRONTEND_ORIGINS, *extras]:
+        origin = _normalize_origin(origin)
+        if origin and origin not in allowed:
+            allowed.append(origin)
+    return allowed
+
+
+# ─────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────
 class Config:
@@ -68,17 +104,7 @@ class Config:
     ADMIN_PASSWORD    = os.environ.get("ADMIN_PASSWORD", "")
     MONGO_URI         = os.environ.get("MONGO_URI",      "mongodb://localhost:27017/")
     DB_NAME           = os.environ.get("DB_NAME",        "edubot_db")
-    FRONTEND_ORIGINS  = [
-        origin.strip()
-        for origin in os.environ.get(
-            "FRONTEND_ORIGINS",
-            "http://localhost:5501,http://127.0.0.1:5501,"
-            "http://localhost:5500,http://127.0.0.1:5500,"
-            "http://localhost:8080,http://127.0.0.1:8080,"
-            "http://localhost:8000,http://127.0.0.1:8000",
-        ).split(",")
-        if origin.strip()
-    ]
+    FRONTEND_ORIGINS  = _build_allowed_origins()
     RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
     TOKEN_EXPIRY_DAYS = 30
     MAX_TOKENS        = 500
@@ -93,7 +119,9 @@ CORS(
     },
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    max_age=600,   # browsers may cache the OPTIONS preflight answer for 10 minutes
 )
+print("[INFO] CORS allowed origins:", ", ".join(app.config["FRONTEND_ORIGINS"]))
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
@@ -278,7 +306,7 @@ def health():
 # ROUTES — AUTH
 # ─────────────────────────────────────────────────────
 @app.route("/api/auth/register", methods=["POST"])
-@limiter.limit("5 per hour")
+@limiter.limit("5 per hour", methods=["POST"])
 def register():
     """Register a new student account.
 
@@ -338,7 +366,7 @@ def register():
 
 
 @app.route("/api/auth/login", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     """Authenticate and return a JWT.
 
@@ -494,7 +522,7 @@ def groq_response(messages: list[dict[str, str]]) -> str:
 
 
 @app.route("/api/chat", methods=["POST"])
-@limiter.limit("15 per minute")
+@limiter.limit("15 per minute", methods=["POST"])
 def chat():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -803,7 +831,7 @@ def admin_users():
 # ROUTES — PDF UPLOAD & SUMMARIZE
 # ─────────────────────────────────────────────────────
 @app.route("/api/upload/pdf", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute", methods=["POST"])
 def upload_pdf():
     """Extract and summarize an uploaded PDF with the owner-managed Groq service."""
     if "file" not in request.files:
