@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: edubot-ai-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn backend.app:app --workers 2 --timeout 45 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_TIMEOUT_SECONDS
+        value: 30
+      - key: GROQ_MAX_TOKENS
+        value: 800
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
