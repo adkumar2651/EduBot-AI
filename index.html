@@ -1197,11 +1197,6 @@
       <!-- Input area -->
       <div id="input-area">
         <div class="input-wrap">
-          <button class="ia-btn" onclick="triggerFile()" title="Upload PDF">
-            <i class="fa fa-paperclip"></i>
-          </button>
-          <input type="file" id="file-upload" accept=".pdf,application/pdf" style="display:none" onchange="handleFile(event)"/>
-
           <textarea
             id="msg-input"
             rows="1"
@@ -2370,10 +2365,6 @@ function backendPost(path, payload) {
   return backendRequest(path, JSON.stringify(payload), 'application/json');
 }
 
-function backendUpload(path, formData) {
-  return backendRequest(path, formData);
-}
-
 async function fromBackend(message, history) {
   const data = await backendPost('/api/chat', { message, history });
   if (typeof data.response !== 'string' || !data.response.trim()) {
@@ -2649,43 +2640,6 @@ function renderAnalytics() {
       </div>
       <div style="font-size:.55rem;color:var(--t3);">${h.h}</div>
     </div>`).join('');
-}
-
-/* ─────────────────────────────────────────────────────────────
-   FILE UPLOAD
-───────────────────────────────────────────────────────────── */
-function triggerFile() { document.getElementById('file-upload').click(); }
-
-async function handleFile(e) {
-  const f = e.target.files[0]; if (!f) return;
-  e.target.value = '';
-  if (!f.name.match(/\.pdf$/i)) { toast('error','Only PDF files are supported.'); return; }
-  if (f.size > 9 * 1024 * 1024) { toast('error','PDF files must be smaller than 9 MB.'); return; }
-  document.getElementById('welcome').classList.add('hidden');
-  const ts = now();
-  const uploadMessage = `📎 Uploaded: **${esc(f.name)}** (${(f.size/1024).toFixed(1)} KB)`;
-  addBubble('user', uploadMessage, ts);
-  if (S.chatId) {
-    const chat = S.chats[S.chatId];
-    chat.messages.push({ role:'user', content:uploadMessage, ts });
-    if (chat.messages.length === 1) chat.title = f.name.slice(0, 36);
-    saveChats(); renderHist();
-  }
-  showTyping(); S.typing = true;
-  document.getElementById('send-btn').disabled = true;
-  const formData = new FormData();
-  formData.append('file', f);
-  try {
-    const result = await backendUpload('/api/upload/pdf', formData);
-    const resp = `📄 **PDF Summary — ${f.name}**\n\n${result.summary}\n\n_${result.pages} page(s) processed._`;
-    addBubble('bot', resp, now());
-    if (S.chatId) { S.chats[S.chatId].messages.push({role:'bot',content:resp,ts:now()}); saveChats(); }
-  } catch (error) {
-    toast('error', error.message);
-  } finally {
-    hideTyping(); S.typing = false;
-    document.getElementById('send-btn').disabled = false;
-  }
 }
 
 /* ─────────────────────────────────────────────────────────────
